@@ -299,22 +299,60 @@ class TelegramNewsBot:
         return alert_message
 
     def get_alpha_vantage_news(self, symbol):
-        """Alpha Vantage 뉴스 조회"""
+        """Alpha Vantage 뉴스 조회 (개선된 버전)"""
         if not ALPHA_VANTAGE_KEY:
             print("Alpha Vantage API 키가 없습니다.")
             return None
             
         url = "https://www.alphavantage.co/query"
+        
+        # 종목별 더 구체적인 검색어 사용
+        search_terms = {
+            "IBM": "International Business Machines",
+            "NOW": "ServiceNow",
+            "SOUN": "SoundHound AI"
+        }
+        
         params = {
             "function": "NEWS_SENTIMENT",
             "tickers": symbol,
+            "topics": "technology,earnings",
             "apikey": ALPHA_VANTAGE_KEY,
-            "limit": 3
+            "limit": 5,
+            "sort": "LATEST"
         }
         
         try:
             response = requests.get(url, params=params, timeout=15)
-            return response.json()
+            data = response.json()
+            
+            # 응답 데이터 검증 및 필터링
+            if data and "feed" in data:
+                filtered_feed = []
+                search_term = search_terms.get(symbol, symbol)
+                
+                for item in data["feed"]:
+                    title = item.get("title", "").lower()
+                    summary = item.get("summary", "").lower()
+                    
+                    # 해당 회사명이 실제로 언급된 뉴스만 선택
+                    company_mentioned = (
+                        search_term.lower() in title or 
+                        search_term.lower() in summary or
+                        symbol.lower() in title
+                    )
+                    
+                    # 다른 회사명이 더 많이 언급된 경우 제외
+                    other_companies = ["seagate", "tesla", "apple", "microsoft", "google", "amazon"]
+                    other_company_mentioned = any(company in title for company in other_companies)
+                    
+                    if company_mentioned and not other_company_mentioned:
+                        filtered_feed.append(item)
+                
+                data["feed"] = filtered_feed
+                print(f"[{symbol}] 필터링 후 뉴스 {len(filtered_feed)}개")
+                
+            return data
         except Exception as e:
             print(f"뉴스 조회 오류 ({symbol}): {e}")
             return None
