@@ -44,19 +44,17 @@ class TelegramNewsBot:
     def __init__(self):
         self.sent_news_file = "sent_news.json"
         self.sent_news = self.load_sent_news()
-        self.last_prices_file = "last_prices.json"
+        self.last_prices_file = "last_prices.json" 
         self.last_prices = self.load_last_prices()
         self.market_data_file = "market_data.json"
         self.market_data = self.load_market_data()
         
+        # 알림 중복 방지를 위한 메모리 기반 추적
+        self.session_alerts = set()
+        
     def load_sent_news(self):
-        """이전에 보낸 뉴스 목록 로드"""
-        try:
-            if os.path.exists(self.sent_news_file):
-                with open(self.sent_news_file, 'r') as f:
-                    return set(json.load(f))
-        except:
-            pass
+        """이전에 보낸 뉴스 목록 로드 (GitHub Actions에서는 메모리 기반)"""
+        # GitHub Actions는 매번 새로운 환경이므로 간단한 중복 방지만 사용
         return set()
     
     def save_sent_news(self):
