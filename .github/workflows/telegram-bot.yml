@@ -1,23 +1,36 @@
 name: Telegram Investment Bot
 
 on:
-  workflow_dispatch:
   schedule:
-    - cron: '0 */1 * * *'
+    # 30분마다 실행 (UTC 시간 기준)
+    - cron: '*/30 * * * *'
+    # 매일 한국시간 오전 9시 브리핑 (UTC 자정)
+    - cron: '0 0 * * *'
+  workflow_dispatch: # 수동 실행 가능
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+    
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
-        with:
-          python-version: '3.9'
-      - run: pip install requests
-      - run: python telegram_bot.py
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          CHAT_ID: ${{ secrets.CHAT_ID }}
-          ALPHA_VANTAGE_KEY: ${{ secrets.ALPHA_VANTAGE_KEY }}
-          POLYGON_KEY: ${{ secrets.POLYGON_KEY }}
-          BENZINGA_KEY: ${{ secrets.BENZINGA_KEY }}
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install requests schedule
+        
+    - name: Run Telegram Bot
+      env:
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        CHAT_ID: ${{ secrets.CHAT_ID }}
+        ALPHA_VANTAGE_KEY: ${{ secrets.ALPHA_VANTAGE_KEY }}
+        POLYGON_KEY: ${{ secrets.POLYGON_KEY }}
+        BENZINGA_KEY: ${{ secrets.BENZINGA_KEY }}
+      run: python telegram_bot.py
