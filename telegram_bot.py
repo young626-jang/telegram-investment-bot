@@ -1,4 +1,4 @@
-# telegram_bot.py (업데이트 버전)
+# telegram_bot.py (시장 컨텍스트 알림 추가 버전)
 import requests
 import os
 import json
@@ -16,8 +16,8 @@ PORTFOLIO_STOCKS = {
     "IBM": {
         "shares": 16, 
         "avg_price": 261.68,
-        "target_price": 275.0,    # 목표가
-        "stop_loss": 240.0        # 손절가
+        "target_price": 275.0,
+        "stop_loss": 240.0
     },
     "NOW": {
         "shares": 3, 
@@ -33,12 +33,21 @@ PORTFOLIO_STOCKS = {
     }
 }
 
+# 시장 지수 모니터링 설정
+MARKET_INDICES = {
+    "SPY": {"name": "S&P 500", "threshold": 0.015},     # 1.5% 변동시 알림
+    "QQQ": {"name": "나스닥", "threshold": 0.02},        # 2% 변동시 알림
+    "VIX": {"name": "VIX 공포지수", "threshold": 0.15}   # 15% 변동시 알림
+}
+
 class TelegramNewsBot:
     def __init__(self):
         self.sent_news_file = "sent_news.json"
         self.sent_news = self.load_sent_news()
         self.last_prices_file = "last_prices.json"
         self.last_prices = self.load_last_prices()
+        self.market_data_file = "market_data.json"
+        self.market_data = self.load_market_data()
         
     def load_sent_news(self):
         """이전에 보낸 뉴스 목록 로드"""
@@ -75,6 +84,24 @@ class TelegramNewsBot:
                 json.dump(self.last_prices, f)
         except Exception as e:
             print(f"가격 저장 오류: {e}")
+
+    def load_market_data(self):
+        """이전 시장 데이터 로드"""
+        try:
+            if os.path.exists(self.market_data_file):
+                with open(self.market_data_file, 'r') as f:
+                    return json.load(f)
+        except:
+            pass
+        return {}
+    
+    def save_market_data(self):
+        """시장 데이터 저장"""
+        try:
+            with open(self.market_data_file, 'w') as f:
+                json.dump(self.market_data, f)
+        except Exception as e:
+            print(f"시장 데이터 저장 오류: {e}")
         
     def send_telegram_message(self, message):
         """텔레그램 메시지 전송"""
@@ -112,6 +139,87 @@ class TelegramNewsBot:
         except Exception as e:
             print(f"주가 조회 오류 ({symbol}): {e}")
         return None
+
+    def check_market_conditions(self):
+        """시장 상황 체크 및 알림"""
+        print("시장 상황 체크 중...")
+        
+        for symbol, info in MARKET_INDICES.items():
+            try:
+                current_price = self.get_stock_price(symbol)
+                if not current_price:
+                    continue
+                    
+                last_price = self.market_data.get(symbol, current_price)
+                change_pct = ((current_price - last_price) / last_price) * 100
+                
+                # 임계값 초과 시 알림
+                if abs(change_pct) >= info["threshold"] * 100:
+                    
+                    if symbol == "VIX":
+                        # VIX는 특별 처리
+                        if change_pct > 0:
+                            alert_message = f"""⚠️ **시장 공포지수 급등!**
+
+📊 **VIX 지수**: {current_price:.1f} ({change_pct:+.1f}%)
+😰 **시장 심리**: 공포감 증가
+
+🛡️ **포트폴리오 대응방안**:
+• 방어 모드 권장
+• 추가 매수 신중하게
+• 손절 기준 재검토
+
+💡 변동성이 큰 시기입니다. 감정적 판단 금물!"""
+                        else:
+                            alert_message = f"""😌 **시장 안정화 신호**
+
+📊 **VIX 지수**: {current_price:.1f} ({change_pct:+.1f}%)
+😊 **시장 심리**: 안정감 회복
+
+🚀 **포트폴리오 기회**:
+• 공격적 투자 고려 가능
+• 우량주 매수 타이밍
+• 목표가 상향 검토
+
+💡 시장이 안정화되고 있습니다!"""
+                    
+                    else:
+                        # SPY, QQQ 등 일반 지수
+                        if change_pct > 0:
+                            emoji = "📈🟢"
+                            impact = "상승 모멘텀"
+                            recommendation = "추가 매수 기회 검토"
+                        else:
+                            emoji = "📉🔴"
+                            impact = "하락 압력"
+                            recommendation = "방어적 포지션 고려"
+                            
+                        alert_message = f"""{emoji} **{info['name']} 급변동!**
+
+📊 **현재 상황**:
+• 지수: {current_price:.2f}
+• 변동: {change_pct:+.2f}%
+
+💼 **포트폴리오 영향**:
+• 예상 영향: {impact}
+• 개별 종목도 동조화 가능성
+
+💡 **추천 행동**: {recommendation}
+
+🔍 개별 종목 현황도 함께 확인하세요!"""
+
+                    # 알림 전송
+                    result = self.send_telegram_message(alert_message)
+                    if result and result.get("ok"):
+                        print(f"[{symbol}] 시장 알림 전송 완료: {change_pct:+.1f}%")
+                
+                # 현재 데이터 저장
+                self.market_data[symbol] = current_price
+                
+            except Exception as e:
+                print(f"[{symbol}] 시장 데이터 오류: {e}")
+        
+        self.save_market_data()
 
     def check_price_alerts(self, symbol, current_price):
         """가격 알림 체크"""
@@ -188,12 +296,12 @@ class TelegramNewsBot:
 • 보유: {shares}주
 • 영향금액: ${change_amount:+.2f}
 
-💡 **알림**: 급격한 변동이 감지되었습니다. 시장 상황을 확인해보세요!"""
+💡 **알림**: 급격한 변동이 감지되었습니다. 시장 전체 상황도 확인해보세요!"""
 
         return alert_message
 
     def get_alpha_vantage_news(self, symbol):
-        """Alpha Vantage 뉴스 조회 (무료 대안)"""
+        """Alpha Vantage 뉴스 조회"""
         if not ALPHA_VANTAGE_KEY:
             print("Alpha Vantage API 키가 없습니다.")
             return None
@@ -272,10 +380,14 @@ class TelegramNewsBot:
 
         return message
 
-    def check_news_and_prices(self):
-        """뉴스 체크 및 가격 알림"""
-        print(f"[{datetime.now()}] 뉴스 및 가격 체크 시작...")
+    def comprehensive_market_check(self):
+        """종합 시장 체크 (뉴스 + 가격 + 시장상황)"""
+        print(f"[{datetime.now()}] 종합 시장 체크 시작...")
         
+        # 1. 시장 상황 먼저 체크
+        self.check_market_conditions()
+        
+        # 2. 개별 종목 체크
         for symbol in PORTFOLIO_STOCKS.keys():
             try:
                 # 현재 주가 조회
@@ -293,18 +405,16 @@ class TelegramNewsBot:
                     # 현재 가격 저장
                     self.last_prices[symbol] = current_price
                 
-                # 뉴스 조회 (기존 기능)
+                # 뉴스 조회
                 news_data = self.get_alpha_vantage_news(symbol)
                 
                 if news_data and "feed" in news_data:
-                    for news_item in news_data["feed"][:2]:  # 최신 2개만
+                    for news_item in news_data["feed"][:2]:
                         news_url = news_item.get("url", "")
                         
-                        # 이미 보낸 뉴스는 스킵
                         if news_url in self.sent_news:
                             continue
                         
-                        # 중요한 키워드가 포함된 뉴스만 알림
                         title = news_item.get("title", "").lower()
                         important_keywords = ["earnings", "revenue", "quarter", "guidance", "acquisition", "partnership", "deal"]
                         
@@ -320,17 +430,35 @@ class TelegramNewsBot:
             except Exception as e:
                 print(f"[{symbol}] 오류: {e}")
         
-        # 가격 데이터 저장
+        # 데이터 저장
         self.save_last_prices()
 
     def send_morning_briefing(self):
-        """아침 브리핑"""
-        briefing = f"""🌅 **소피아 모닝 브리핑**
+        """강화된 아침 브리핑"""
+        briefing = f"""🌅 **소피아 종합 모닝 브리핑**
 
 📅 {datetime.now().strftime('%Y년 %m월 %d일')}
 
 """
         
+        # 시장 상황 요약
+        try:
+            spy_price = self.get_stock_price("SPY")
+            vix_price = self.get_stock_price("VIX")
+            
+            if spy_price and vix_price:
+                if vix_price > 20:
+                    market_mood = "😰 불안정"
+                elif vix_price < 15:
+                    market_mood = "😊 안정적"
+                else:
+                    market_mood = "😐 보통"
+                
+                briefing += f"🌍 **시장 상황**: S&P500 ${spy_price:.2f} | VIX {vix_price:.1f} {market_mood}\n\n"
+        except:
+            pass
+        
+        # 포트폴리오 상황
         total_profit = 0
         for symbol, info in PORTFOLIO_STOCKS.items():
             current_price = self.get_stock_price(symbol)
@@ -345,11 +473,11 @@ class TelegramNewsBot:
                 
                 emoji = "📈" if profit_loss > 0 else "📉" if profit_loss < 0 else "➖"
                 briefing += f"📊 **{symbol}**: ${current_price:.2f} ({profit_loss_pct:+.2f}%) {emoji}\n"
-                briefing += f"   손익: ${profit_loss:+.2f}\n"
-                briefing += f"   목표가까지: {target_distance:.1f}% | 손절선까지: {stop_distance:.1f}%\n\n"
+                briefing += f"   손익: ${profit_loss:+.2f} | 목표가: {target_distance:.1f}% | 손절선: {stop_distance:.1f}%\n\n"
         
         briefing += f"💰 **총 손익**: ${total_profit:+.2f}\n\n"
-        briefing += "💡 상세 분석이 필요하시면 '소피아, 모닝 브리핑 해줘'라고 요청해주세요!"
+        briefing += "🤖 오늘도 소피아가 24시간 시장을 감시합니다!\n"
+        briefing += "💡 궁금한 것이 있으면 언제든 물어보세요!"
         
         self.send_telegram_message(briefing)
 
@@ -357,21 +485,18 @@ def main():
     """메인 실행 함수"""
     bot = TelegramNewsBot()
     
-    # GitHub Actions 환경에서는 한 번만 실행
     try:
-        # 환경 확인
         current_hour = datetime.now().hour
         
         if current_hour == 0:  # UTC 자정 = 한국 오전 9시
             print("아침 브리핑 전송...")
             bot.send_morning_briefing()
         else:
-            print("뉴스 및 가격 체크 실행...")
-            bot.check_news_and_prices()
+            print("종합 시장 체크 실행...")
+            bot.comprehensive_market_check()
             
     except Exception as e:
         print(f"실행 오류: {e}")
-        # 오류 발생 시 알림
         bot.send_telegram_message(f"🚨 시스템 오류 발생: {str(e)}")
 
 if __name__ == "__main__":
