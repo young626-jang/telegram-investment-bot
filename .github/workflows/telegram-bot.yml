@@ -1,6 +1,3 @@
-rm .github/workflows/telegram-bot.yml
-
-cat > .github/workflows/telegram-bot.yml << 'EOF'
 name: Telegram Investment Bot
 
 on:
@@ -35,4 +32,3 @@ jobs:
         POLYGON_KEY: ${{ secrets.POLYGON_KEY }}
         BENZINGA_KEY: ${{ secrets.BENZINGA_KEY }}
       run: python telegram_bot.py
-EOF
