@@ -5,10 +5,20 @@ import json
 from datetime import datetime, timezone, timedelta
 import time
 
-# 환경변수에서 설정값 가져오기 (기존 동일)
+# 환경변수에서 설정값 가져오기 (멀티키 시스템)
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 CHAT_ID = os.getenv('CHAT_ID')
-ALPHA_VANTAGE_KEY = os.getenv('ALPHA_VANTAGE_KEY')
+
+# Alpha Vantage 멀티키 시스템
+ALPHA_VANTAGE_KEYS = [
+    os.getenv('ALPHA_VANTAGE_KEY'),  # 기존 키
+    os.getenv('ALPHA_VANTAGE_KEY_2'),  # 추가 키 2
+    os.getenv('ALPHA_VANTAGE_KEY_3'),  # 추가 키 3
+    os.getenv('ALPHA_VANTAGE_KEY_4'),  # 추가 키 4
+]
+# None 값 제거
+ALPHA_VANTAGE_KEYS = [key for key in ALPHA_VANTAGE_KEYS if key]
+
 POLYGON_KEY = os.getenv('POLYGON_KEY')
 BENZINGA_KEY = os.getenv('BENZINGA_KEY')
 
@@ -26,6 +36,17 @@ class TelegramNewsBot:  # 기존 클래스명 유지
     def __init__(self):
         self.sent_news_file = "sent_news.json"
         self.sent_news = self.load_sent_news()
+        # API 키 로테이션을 위한 인덱스
+        self.current_key_index = 0
+        
+    def get_next_alpha_vantage_key(self):
+        """Alpha Vantage 키 로테이션"""
+        if not ALPHA_VANTAGE_KEYS:
+            return None
+        
+        key = ALPHA_VANTAGE_KEYS[self.current_key_index]
+        self.current_key_index = (self.current_key_index + 1) % len(ALPHA_VANTAGE_KEYS)
+        return key
         
     def load_sent_news(self):
         """이전에 보낸 뉴스 목록 로드 (기존 동일)"""
@@ -65,7 +86,7 @@ class TelegramNewsBot:  # 기존 클래스명 유지
             return None
 
     def get_stock_price(self, symbol):
-        """실시간 주가 조회 (Polygon 우선, Alpha Vantage 백업)"""
+        """실시간 주가 조회 (Polygon 우선, Alpha Vantage 멀티키 백업)"""
         # 먼저 Polygon 시도
         if POLYGON_KEY:
             try:
@@ -80,27 +101,37 @@ class TelegramNewsBot:  # 기존 클래스명 유지
             except Exception as e:
                 print(f"Polygon 오류 ({symbol}): {e}")
         
-        # Polygon 실패 시 Alpha Vantage 백업
-        if ALPHA_VANTAGE_KEY:
+        # Polygon 실패 시 Alpha Vantage 멀티키 백업
+        for attempt in range(len(ALPHA_VANTAGE_KEYS)):
+            key = self.get_next_alpha_vantage_key()
+            if not key:
+                break
+                
             try:
                 url = "https://www.alphavantage.co/query"
                 params = {
                     "function": "GLOBAL_QUOTE",
                     "symbol": symbol,
-                    "apikey": ALPHA_VANTAGE_KEY
+                    "apikey": key
                 }
                 response = requests.get(url, params=params, timeout=10)
                 data = response.json()
                 quote = data.get("Global Quote", {})
+                
                 if quote:
                     price = float(quote.get("05. price", 0))
                     if price > 0:
-                        print(f"✅ {symbol} Alpha Vantage 주가: ${price}")
+                        print(f"✅ {symbol} Alpha Vantage 주가: ${price} (키 {attempt+1})")
                         return price
+                elif "API call frequency" in str(data):
+                    print(f"⚠️ Alpha Vantage 키 {attempt+1} 한도 초과, 다음 키 시도...")
+                    continue
+                    
             except Exception as e:
-                print(f"Alpha Vantage 주가 오류 ({symbol}): {e}")
+                print(f"Alpha Vantage 키 {attempt+1} 오류 ({symbol}): {e}")
+                continue
         
-        print(f"❌ {symbol} 주가 조회 실패")
+        print(f"❌ {symbol} 주가 조회 실패 (모든 키 시도 완료)")
         return None
 
     def get_alpha_vantage_news(self, symbol):
