@@ -208,11 +208,16 @@ class TelegramNewsBot:  # 기존 클래스명 유지
         return message
 
     def check_news(self):
-        """뉴스 체크 및 알림 (기존 함수 개선)"""
+        """뉴스 체크 및 알림 (중복 방지 개선)"""
         now_kst = datetime.now(KST)
         print(f"[{now_kst.strftime('%Y-%m-%d %H:%M:%S KST')}] 뉴스 체크 시작...")
         
+        # 하루에 종목당 최대 2개 뉴스만 알림
+        daily_news_count = {}
+        today = now_kst.strftime('%Y-%m-%d')
+        
         for symbol in PORTFOLIO_STOCKS.keys():
+            daily_news_count[symbol] = 0
             try:
                 # 현재 주가 조회
                 current_price = self.get_stock_price(symbol)
@@ -223,17 +228,28 @@ class TelegramNewsBot:  # 기존 클래스명 유지
                 news_data = self.get_alpha_vantage_news(symbol)
                 
                 if news_data and "feed" in news_data:
-                    for news_item in news_data["feed"][:3]:  # 최신 3개
+                    for news_item in news_data["feed"][:5]:  # 최신 5개 확인
                         news_url = news_item.get("url", "")
                         
                         # 이미 보낸 뉴스는 스킵
                         if news_url in self.sent_news:
                             continue
                         
+                        # 하루에 종목당 최대 2개까지만
+                        if daily_news_count[symbol] >= 2:
+                            print(f"[{symbol}] 오늘 이미 2개 뉴스 전송됨, 추가 전송 건너뜀")
+                            break
+                        
+                        # 오늘 날짜 뉴스만 (너무 오래된 뉴스 제외)
+                        time_published = news_item.get("time_published", "")
+                        if today not in time_published[:10]:  # YYYY-MM-DD 형식 체크
+                            continue
+                        
                         # 중요한 키워드가 포함된 뉴스만 알림
                         title = news_item.get("title", "").lower()
                         important_keywords = ["earnings", "revenue", "quarter", "guidance", 
-                                            "acquisition", "partnership", "deal", "upgrade", "downgrade"]
+                                            "acquisition", "partnership", "deal", "upgrade", "downgrade",
+                                            "beat", "miss", "outlook", "forecast"]
                         
                         if any(keyword in title for keyword in important_keywords):
                             message = self.format_news_alert(symbol, news_item, current_price)
@@ -242,14 +258,17 @@ class TelegramNewsBot:  # 기존 클래스명 유지
                             if result and result.get("ok"):
                                 self.sent_news.add(news_url)
                                 self.save_sent_news()
-                                print(f"[{symbol}] 뉴스 알림 전송: {title[:50]}...")
+                                daily_news_count[symbol] += 1
+                                print(f"[{symbol}] 뉴스 알림 전송 ({daily_news_count[symbol]}/2): {title[:50]}...")
                             
-                            time.sleep(2)  # 메시지 간 간격
+                            time.sleep(3)  # 메시지 간 간격 늘림
                 
-                time.sleep(3)  # API 간 간격
+                time.sleep(5)  # API 간 간격 늘림
                 
             except Exception as e:
                 print(f"[{symbol}] 오류: {e}")
+        
+        print(f"뉴스 체크 완료. 전송 현황: {daily_news_count}")
 
     def send_morning_briefing(self):
         """8시 30분 모닝 브리핑 (기존 함수 수정)"""
